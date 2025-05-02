@@ -1,0 +1,389 @@
+---
+title: "Project"
+author: "Devin Mills"
+date: "`r format(Sys.Date())`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(readxl)
+library(mice)
+library(VIM)
+library(kableExtra)
+library(gtsummary)
+library(broom)
+```
+
+Import all national datasets
+```{r}
+national_2011_2014 <- read_excel("E:/STAT 7940/NHSN Antibiotic Resistance Data 2011-2020/HAI_AR_Data_20112017/national2011_2014.xlsx")
+national_2015_2017 <- read_excel("E:/STAT 7940/NHSN Antibiotic Resistance Data 2011-2020/HAI_AR_Data_20112017/national2015_2017_updated.xlsx", skip = 2)
+national_2018 <- read_excel("E:/STAT 7940/NHSN Antibiotic Resistance Data 2011-2020/HAI_AR_Data_2018/National2018.xlsx", skip = 2)
+national_2019<- read_excel("E:/STAT 7940/NHSN Antibiotic Resistance Data 2011-2020/HAI_AR_Data_2019/National_2019.xlsx", skip = 2)
+national_2020 <- read_excel("E:/STAT 7940/NHSN Antibiotic Resistance Data 2011-2020/HAI_AR_Data_2020/National_2020.xlsx", skip = 2)
+
+df_list<- list(national_2011_2014,national_2015_2017,national_2018,national_2019,national_2020)
+df_list_names<- c("national_2011_2014","national_2015_2017","national_2018","national_2019","national_2020")
+
+all_national <- rbind(national_2011_2014,national_2015_2017,national_2018,national_2019,national_2020)
+all_national <- all_national %>%
+  mutate(gender = case_when(gender == "A" ~ "All",
+                            TRUE ~ gender))
+```
+
+Mutate dataframe as designed before
+```{r}
+test_working_df<- all_national%>%
+  mutate(numTested = case_when(numTested == "." ~ NA_character_,
+                   TRUE ~ numTested))%>%
+  mutate(numTested = as.integer(numTested))%>%
+  mutate(numNonSuscep = case_when(numNonSuscep == "." ~ NA_character_,
+                   TRUE ~ numNonSuscep))%>%
+  mutate(numNonSuscep = as.integer(numNonSuscep))%>%
+  mutate(numSuscep = numTested-numNonSuscep)
+
+test_working_df_2 <-test_working_df
+
+test_working_df$Susceptable <- "Susceptable"
+test_working_df_2$Susceptable <- "Resistant"
+test_working_df<- test_working_df%>%
+  rename(Count = numSuscep)%>%
+  dplyr::select(-c(numTested,numNonSuscep,PctNonSuscep,suppress,displayTested))
+test_working_df_2<- test_working_df_2%>%
+  rename(Count = numNonSuscep)%>%
+  dplyr::select(-c(numTested,numSuscep,PctNonSuscep,suppress,displayTested))
+
+working_df <- rbind(test_working_df,test_working_df_2)
+
+working_df <- working_df %>%
+  filter(gender != "All", agecat != "All", eventType != "All", facility != "All", locateGR != "All")%>%
+  filter(procCode %in% c("All", "N/A"))%>%
+  filter(major %in% c("All", "N/A"))%>%
+  filter(bedcat %in% c("All", "N/A"))%>%
+  arrange(Phenotype, eventType,year, agecat,gender)
+
+working_df <-working_df%>%
+  filter(!is.na(Count))%>%
+  mutate(year = as.factor(year)) %>%
+  mutate(eventType = case_when(eventType == "CAUTI"~"Catheter-associated Urinary Tract Infections",
+                               eventType == "CLABSI"~"Central Line-associated Bloodstream Infection",
+                               eventType == "SSI"~"Surgical Site Infection"))%>%
+  mutate(gender = case_when(gender == "F"~"Female",
+                            gender =="M"~"Male"))%>%
+  mutate(facility = case_when(facility == "LTAC"~"Long Term Acute Care Hospital",
+                              facility =="General"~"Acute Care Hospital",
+                             facility == "REHAB"~"Inpatient Rehabilitation Facility"))%>%
+  mutate(locateGR = case_when(locateGR == "ICU"~"Intensive Care Unit",
+                            locateGR == "NICU"~"Neonatal Intensive Care Unit",
+                            locateGR == "Onc"~"Oncology ICU",
+                            TRUE ~ locateGR))%>%
+  mutate(Phenotype = case_when(Phenotype == "Acinetobacter_Carbapenems" ~"Acinetobacter Carbapenem-Resistant" ,
+                               Phenotype == "Acinetobacter_MDR"~"Acinetobacter Multidrug-Resistant",
+                               Phenotype == "CNS_Vanc" ~ "Coagulase-negative Staphlococci Vancomycin-Resistant",
+                               Phenotype == "CREall"~ "Enterobacterales Carbapenem-Resistant",
+                               Phenotype == "E.faecalis_Dapto" ~"Enterococcus faecalis Daptomycin-Resistant",
+                               Phenotype == "E.faecalis_VRE"~ "Enterococcus faecalis Vancomycin-Resistant",
+                               Phenotype == "E.faecium_Dapto"~ "Enterococcus faecium Daptomycin-Resistant",
+                               Phenotype == "E.faecium_VRE"~ "Enterococcus faecium Vancomycin-Resistant",
+                               Phenotype == "Ecoli_CRE"~ "Eschericia coli Carbapenem-Resistant",
+                               Phenotype == "Ecoli_ESCeph"~ "Eschericia coli Cephalosporin-Resistant",
+                               Phenotype == "Ecoli_Fluoroq"~ "Eschericia coli Fluoroquinolone-Resistant",
+                               Phenotype == "Ecoli_MDR"~ "Eschericia coli Multidrug-Resistant",
+                               Phenotype == "Entb_Cefepime" ~"Enterobacter Cefepime-Resistant",
+                               Phenotype == "Entb_CRE"~"Enterobacter Carbapenem-Resistant",
+                               Phenotype == "Entb_MDR"~"Enterobacter Multidrug-Resistant",
+                               Phenotype == "Klebsiella_CRE"~ "Klebsiella Carbapenem-Resistant",
+                               Phenotype == "Klebsiella_ESCeph"~ "Klebsiella Cephalosporin-Resistant",
+                               Phenotype == "Klebsiella_MDR"~ "Klebsiella Multidrug-Resistant",
+                               Phenotype == "MRSA" ~ "Staphlococcus aureus Methicillin-Resistant",
+                               Phenotype == "MRSA_Dapto"~ "Staphlococcus aureus Methicillin-Resistant/Daptomycin-Resistant",
+                               Phenotype == "MRSA_Fluoroq"~ "Staphlococcus aureus Methicillin-Resistant/Fluoroquinolone-Resistant",
+                               Phenotype == "MRSA_Linezolid"~ "Staphlococcus aureus Methicillin-Resistant/Linezolid-Resistant",
+                               Phenotype == "MRSA_Vanc"~ "Staphlococcus aureus Methicillin-Resistant/Vancomycin-Resistant",
+                               Phenotype == "P.aeruginosa_Amino" ~"Pseudomonas aeruginosa Aminoglycoside-Resistant",
+                               Phenotype == "P.aeruginosa_Carbapenems"~"Pseudomonas aeruginosa Carbapenem-Resistant",
+                               Phenotype == "P.aeruginosa_ESCeph"~"Pseudomonas aeruginosa Cephalosporin-Resistant",
+                               Phenotype == "P.aeruginosa_Fluoroq"~"Pseudomonas aeruginosa Fluoroquinolone-Resistant",
+                               Phenotype == "P.aeruginosa_MDR"~"Pseudomonas aeruginosa Multidrug-Resistant",
+                               Phenotype == "P.aeruginosa_PiPTaz"~"Pseudomonas aeruginosa Piperacillin-Resistant/Tazobactam-Resistant"
+  ))%>%
+  mutate_if(is.character, as.factor)%>%
+  mutate(year_helper = as.factor(ifelse(year == "2020","2020","2011-2019")))
+```
+
+```{r}
+peds_df <- working_df%>%
+  filter(agecat == "Peds")%>%
+  dplyr::select(-agecat)
+adults_df <- working_df%>%
+  filter(agecat == "Adult")%>%
+  dplyr::select(-agecat)
+```
+
+
+```{r}
+adult_lit_model <- glm(Susceptable ~ Phenotype + eventType+ year_helper + gender + facility + locateGR ,
+                     data = adults_df,
+                     family = binomial("logit"),
+                     weights = Count)
+summary(adult_lit_model)
+adult_lit_model$coefficients
+```
+
+
+#Model
+```{r}
+adult_table<- cbind(tidy(adult_lit_model),exp(cbind(`Odds Ratio` = coef(adult_lit_model), `Profile`= confint.default(adult_lit_model, level = 0.95))))%>%
+  as.tibble()
+adult_table_forward <- adult_table %>%
+  filter(`Odds Ratio` >= 1)
+adult_table_reverse <- adult_table%>%
+  filter(!term %in% adult_table_forward$term)
+adult_table_reverse$`2.5 %` <- 1/adult_table_reverse$`2.5 %`
+adult_table_reverse$`97.5 %` <- 1/adult_table_reverse$`97.5 %`
+adult_table_reverse$`Odds Ratio` <- 1/adult_table_reverse$`Odds Ratio`
+adult_table_reverse_infec<- adult_table_reverse[c(1:4),]%>%
+  arrange(desc(`Odds Ratio`))
+adult_table_reverse_other <- adult_table_reverse[c(5:7),]%>%
+  arrange(desc(`Odds Ratio`))
+adult_table_reverse_infec$term<- gsub("-Resistant", "-Susceptable", adult_table_reverse_infec$term) 
+adult_table_reverse_other$term <- paste(adult_table_reverse_other$term,"-Susceptable")
+adult_table_forward_2<- adult_table_forward %>%
+  filter(`Odds Ratio` >= 10)%>%
+  arrange(desc(`Odds Ratio`))
+adult_table_forward_3 <- adult_table_forward[c(26:28),]
+adult_table<- rbind(adult_table_forward_2,adult_table_reverse_infec,adult_table_reverse_other)
+
+adult_table%>%
+  dplyr::select(term, `Odds Ratio`,`2.5 %`,`97.5 %`)%>%
+  kbl(col.names = c("Term", "Odds Ratio", "Walds 2.5%", "Walds 97.5%")) %>%
+  kable_classic() %>%
+  kable_styling(full_width = FALSE, position = "center") %>%
+  row_spec(0,bold = TRUE)
+
+adult_lit_model %>%
+  gtsummary::tbl_regression(exp = TRUE)%>%
+  bold_labels() %>%
+  italicize_levels()%>%
+  modify_header(label = "**Variable**")%>%
+  as_gt()%>%
+  gt::opt_row_striping(row_striping = TRUE)%>%
+  gt::gtsave(filename = "odds.png")
+
+
+f$`_boxhead`
+adults_df%>%
+  uncount(Count)%>%
+  select(-c(year_helper, bedcat,major,procCode, #Phenotype
+            ))%>%
+  rename(Location = locateGR, `Infection Event` = eventType, Year = year, Gender = gender, Facility = facility)%>%
+  tbl_summary(by = Susceptable)%>%
+  bold_labels() %>%
+  italicize_levels()%>%
+  modify_header(label = "**Variable**")%>%
+  as_gt()%>%
+  gt::opt_row_striping(row_striping = TRUE)
+#%>%
+  gt::gtsave(filename = "counts.png")
+```
+
+###Hosmer-Lemeshow
+```{r}
+HL <- ResourceSelection::hoslem.test(adult_lit_model$y, fitted(adult_lit_model), g =6)
+HL
+```
+```{r}
+HL%>%
+  tidy()%>%
+  select(-method)%>%
+  rename(`X-Squared`=statistic, df = parameter)%>%
+  mutate(p.value = "<2.2e-16")%>%
+  #format(HL$p.value, scientific=TRUE)%>%
+  gt::gt()%>%
+  gt::tab_header("Hosmer and Lemeshow Goodness of Fit (GOF) Test")%>%
+  gt::tab_style(style = gt::cell_text(weight = "bold"),
+                location = gt::cells_title())%>%
+  gt::opt_row_striping(row_striping = TRUE)%>%
+  gt::gtsave(filename = "HL.png")
+
+```
+
+```{r}
+cbind(HL$observed,HL$expected)
+```
+
+```{r}
+predicted_prob <- as_tibble(fitted(adult_lit_model))
+lapply(predicted_prob, mean)
+```
+```{r}
+predicted_prob_graph <- reshape2::melt(adult_lit_model, value.name = "probability")
+predicted_prob%>%
+  ggplot()+
+  geom_line(aes(x = variable,y = probability))+
+  labs(title = "Predicted Probability Estimates", x = "Food", y = "Probability")+
+  theme_bw()+
+  theme(plot.title = element_text(hjust = 0.5)) 
+```
+
+```{r}
+
+adult_glm_AICstart <- glm(Susceptable ~ 1,
+                     data = adults_df,
+                     family = binomial("logit"),
+                     weights = Count)
+lower_formula<-as.formula(Susceptable ~ 1)
+upper_formula<-as.formula(Susceptable ~ Phenotype + eventType+ year_helper + gender+ facility)
+MASS::stepAIC(adult_glm_AICstart, scope=list(upper=upper_formula, lower=lower_formula),
+        family=binomial, 
+        data = adults_df, 
+        direction = "both")
+adult_glm_no_locate <- glm(Susceptable ~ Phenotype + eventType+ year_helper+ facility+gender,
+                     data = adults_df,
+                     family = binomial("logit"),
+                     weights = Count)
+adult_glm_no_gend <- glm(Susceptable ~ Phenotype + eventType+ year_helper+ facility,
+                     data = adults_df,
+                     family = binomial("logit"),
+                     weights = Count)
+
+adult_glm_no_gend_year <- glm(Susceptable ~ Phenotype + eventType+ facility,
+                     data = adults_df,
+                     family = binomial("logit"),
+                     weights = Count)
+adult_glm_t <- glm(Susceptable ~ Phenotype + year_helper +facility+locateGR+gender,
+                     data = adults_df,
+                     family = binomial("logit"),
+                     weights = Count)
+models <- list(adult_lit_model,adult_glm_no_locate )
+model.names <- c("adult_lit_model","adult_glm_no_locate")
+AICcmodavg::aictab(cand.set = models, modnames = model.names)
+```
+```{r}
+AICC<- AICcmodavg::aictab(cand.set = models, modnames = model.names) %>%
+  mutate(Delta_AICc = round(Delta_AICc, 2))%>%
+  mutate(ModelLik = scales::scientific(ModelLik, digits = 3))%>%
+  mutate(AICcWt = scales::scientific(AICcWt, digits = 3))%>%
+  rename(`Model Object` = Modnames, `Model Likelihood` = ModelLik, `Delta AICc` = Delta_AICc)
+#%>%
+  gt::gt()%>%
+  gt::tab_header("Model Selection Based on AICc")%>%
+  gt::opt_row_striping(row_striping = TRUE)%>%
+  gt::gtsave(filename = "AICc.png")
+```
+
+#Model Chi-sq
+```{r}
+anova(adult_lit_model, test = "Chisq")
+```
+```{r}
+chisq <- anova(adult_lit_model, test = "Chisq")%>%
+  tidy()%>%
+  mutate(deviance = round(deviance,2))%>%
+  mutate(p.value = scales::scientific(p.value, digits = 3))%>%
+  rename(Variable = term, DF = df, Deviance = deviance, DF.Residual = df.residual, Residual.Deviance = residual.deviance)
+
+#%>%
+  gt::gt()%>%
+  gt::tab_header(title ="Analysis of Deviance Table",
+                 subtitle = "Chi-Square")%>%
+  gt::opt_row_striping(row_striping = TRUE)%>%
+  gt::gtsave(filename = "CHI.png")
+```
+#Likilihood ratio test
+```{r}
+tlm <- lmtest::lrtest(adult_lit_model, adult_glm_no_locate)%>%
+  tidy()
+
+tlm_merge <- cbind(tlm,AICC)
+tlm_merge$term<- gsub("year_helper", "Year", tlm_merge$term) 
+tlm_merge$term<- gsub("gender", "Gender", tlm_merge$term) 
+tlm_merge$term<- gsub("facility", "Facility", tlm_merge$term) 
+tlm_merge$term<- gsub("locateGR", "Location", tlm_merge$term)
+tlm_merge$term<- gsub("eventType", "Infection Event", tlm_merge$term) 
+tlm_merge %>%
+  select(term, K, AICc, AICcWt, Cum.Wt, LogLik, statistic, p.value)%>%
+  mutate(statistic = round(statistic,2))%>%
+  mutate(p.value = scales::scientific(p.value, digits = 3))%>%
+  rename(Model = term, DF = K,Chisq = statistic, `(>Chisq)     ` = p.value)%>%
+  gt::gt()%>%
+  gt::tab_header(title ="Model Comparison",
+                 subtitle = "Literature vs. StepWise")%>%
+  gt::tab_options(., container.width = 1250, container.height = 300)%>%
+  gt::tab_style(style = gt::cell_text(weight = "bold"),
+                location = gt::cells_title())%>%
+  gt::opt_row_striping(row_striping = TRUE)
+#%>%
+  gt::gtsave(filename = "Comp.png")
+```
+```{r}
+lmtest::lrtest(adult_lit_model, adult_glm_no_locate, adult_glm_no_gend_locate,adult_glm_no_gend_year_locate)%>%
+  tidy()%>%
+  mutate(statistic = round(statistic,2))%>%
+  mutate(p.value = scales::scientific(p.value, digits = 3))%>%
+  rename(Equation = term, `#Df` = X.Df, DF = df, Chisq = statistic, `(>Chisq)` = p.value)%>%
+  gt::gt()%>%
+  gt::cols_width(gt::ends_with(")") ~ gt::px(60))%>%
+  gt::tab_header(title = "Likelihood Ratio Test")%>%
+  gt::opt_row_striping(row_striping = TRUE)
+  #%>%
+  gt::gtsave(filename = "LLR.png")
+```
+#Wald Test
+```{r}
+survey::regTermTest(adult_lit_model,"Phenotype")
+survey::regTermTest(adult_lit_model,"eventType")
+survey::regTermTest(adult_lit_model,"year_helper")
+survey::regTermTest(adult_lit_model,"gender")
+survey::regTermTest(adult_lit_model,"facility")
+survey::regTermTest(adult_lit_model,"locateGR")
+```
+
+###Multicolinearity
+```{r}
+save <- as.data.frame(car::vif(adult_glm_no_locate))
+save_2 <- data.frame("locateGR", GVIF = 1.485935,DF = 3,`GVIF^(1/(2*Df))` =1.068235)
+rownames(save_2) <- save_2$X.locateGR.
+save_2<- setNames(rev(save_2), names(save))
+save_2 <- save_2[,c(1:3)]
+save <- rbind(save, save_2)
+save <- cbind(Variable = rownames(save), save)
+save%>%
+  #tidy()%>%
+  mutate(GVIF = round(GVIF,2))%>%
+  mutate(`GVIF^(1/(2*Df))` = round(`GVIF^(1/(2*Df))`,2))%>%
+  #mutate(p.value = scales::scientific(p.value, digits = 3))%>%
+  #rename(Equation = term, `#Df` = X.Df, DF = df, Chisq = statistic, `(>Chisq)` = p.value)%>%
+  gt::gt()%>%
+  gt::tab_header(title = "VIF")%>%
+  gt::opt_row_striping(row_striping = TRUE)%>%
+  gt::gtsave(filename = "VIF.png")
+
+table1 <- merge(chisq, save, on = "Variable", all.x = TRUE)
+table1 <- table1[,c(1:7)]
+table1%>%
+  mutate(GVIF = round(GVIF,2))%>%
+  mutate(Deviance = round(Deviance,2))%>%
+  mutate(p.value = as.numeric(p.value))%>%
+  mutate(p.value = scales::scientific(p.value, digits = 3))%>%
+  mutate(Variable = case_when(Variable == "eventType" ~ "Infection Event",
+                              Variable == "facility" ~ "Facility",
+                              Variable == "gender" ~ "Gender",
+                              Variable == "locateGR" ~ "Facility Internal Location",
+                              Variable == "year_helper" ~ "Year",
+                              TRUE ~ Variable))%>%
+  select(Variable, DF,Deviance, DF.Residual,Residual.Deviance,GVIF,p.value)%>%
+  rename(`DF Residual` = DF.Residual, `Residual Deviance` = Residual.Deviance, `p-value` = p.value)%>%
+  arrange(!is.na(desc(Deviance)), desc(Deviance))%>%
+  gt::gt()%>%
+  gt::tab_header(title = "Goodness Of Fit Testing", subtitle = "Chi-Square/VIF")%>%
+  gt::tab_style(style = gt::cell_text(weight = "bold"),
+                location = gt::cells_title())%>%
+  gt::opt_row_striping(row_striping = TRUE)%>%
+  gt::gtsave(filename = "GOF.png")
+```
+```{r}
+car::vif(adult_lit_model)
+```
